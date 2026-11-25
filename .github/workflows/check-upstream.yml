@@ -85,9 +85,21 @@ jobs:
           # in GitHub Actions variables.
           project_json="$(curl --fail --silent --show-error \
             "https://copr.fedorainfracloud.org/api_3/project?ownername=${owner}&projectname=${project}")"
-          mapfile -t chroots < <(jq -r '.output.project.chroots[]? // empty' <<< "$project_json")
+          # COPR's project endpoint exposes configured chroots as the keys
+          # of `chroot_repos` (an object), not as `project.chroots` (an array).
+          # Accept the common wrapped and unwrapped API response shapes.
+          mapfile -t chroots < <(
+            jq -er '
+              (.output.project // .output // .) as $project
+              | ($project.chroot_repos // $project.chroots // {})
+              | if type == "object" then keys[]
+                elif type == "array" then .[]
+                else empty
+                end
+            ' <<< "$project_json"
+          )
           if [ "${#chroots[@]}" -eq 0 ]; then
-            echo "COPR returned no enabled chroots for ${COPR_PROJECT}; refusing to submit a build" >&2
+            echo "COPR returned no configured chroots for ${COPR_PROJECT}; refusing to submit a build" >&2
             jq . <<< "$project_json" >&2
             exit 1
           fi
