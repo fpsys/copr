@@ -13,7 +13,7 @@ from pathlib import Path
 
 REPOSITORY = "SeniorMatt/kiri"
 API_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
-SPEC = Path("kiri.spec")
+SPEC = Path(__file__).resolve().parent / "kiri.spec"
 
 
 def fetch_json(url: str) -> dict:

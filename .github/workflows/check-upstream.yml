@@ -1,4 +1,4 @@
-name: Check Kiri upstream release
+name: Check upstream releases
 
 on:
   schedule:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: kiri-upstream-release
+  group: copr-upstream-release
   cancel-in-progress: false
 
 jobs:
@@ -21,26 +21,32 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check upstream release and update RPM spec
+      - name: Check upstream releases and update RPM specs
         id: update
         run: |
-          python3 scripts/update-release.py
-          if ! git diff --quiet -- kiri.spec; then
+          changed_recipes=()
+          for dir in recipes/*/; do
+            [ -d "$dir" ] || continue
+            recipe="$(basename "$dir")"
+            spec="${dir}${recipe}.spec"
+            updater="${dir}update.py"
+            if [ ! -f "$spec" ] || [ ! -f "$updater" ]; then
+              echo "Skipping ${dir}: missing ${recipe}.spec or update.py"
+              continue
+            fi
+            echo "=== Checking ${recipe} ==="
+            python3 "$updater"
+            if ! git diff --quiet -- "$spec"; then
+              changed_recipes+=("$recipe")
+            fi
+          done
+
+          if [ "${#changed_recipes[@]}" -gt 0 ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "recipes=${changed_recipes[*]}" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Commit updated release metadata
-        if: steps.update.outputs.changed == 'true'
-        id: commit
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add kiri.spec
-          git commit -m "chore: package Kiri $(sed -n 's/^Version:[[:space:]]*//p' kiri.spec)"
-          git push
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Configure COPR credentials
         if: steps.update.outputs.changed == 'true'
@@ -62,12 +68,12 @@ jobs:
           "$RUNNER_TEMP/copr-venv/bin/pip" install --disable-pip-version-check copr-cli
           echo "$RUNNER_TEMP/copr-venv/bin" >> "$GITHUB_PATH"
 
-      - name: Submit updated source to COPR
+      - name: Commit updated specs and submit COPR builds
         if: steps.update.outputs.changed == 'true'
         env:
           COPR_PROJECT: ${{ vars.COPR_PROJECT }}
           REPOSITORY: ${{ github.repository }}
-          COMMIT_SHA: ${{ steps.commit.outputs.sha }}
+          CHANGED_RECIPES: ${{ steps.update.outputs.recipes }}
         run: |
           if [ -z "$COPR_PROJECT" ]; then
             echo "Missing COPR_PROJECT repository variable (for example: username/kiri)" >&2
@@ -85,9 +91,6 @@ jobs:
           # in GitHub Actions variables.
           project_json="$(curl --fail --silent --show-error \
             "https://copr.fedorainfracloud.org/api_3/project?ownername=${owner}&projectname=${project}")"
-          # COPR's project endpoint exposes configured chroots as the keys
-          # of `chroot_repos` (an object), not as `project.chroots` (an array).
-          # Accept the common wrapped and unwrapped API response shapes.
           mapfile -t chroots < <(
             jq -er '
               (.output.project // .output // .) as $project
@@ -109,10 +112,24 @@ jobs:
             args+=(--chroot "$chroot")
           done
           printf 'Building for project chroots: %s\n' "${chroots[*]}"
-          copr-cli buildscm \
-            --clone-url "https://github.com/${REPOSITORY}.git" \
-            --commit "$COMMIT_SHA" \
-            --spec kiri.spec \
-            --background \
-            "${args[@]}" \
-            "$COPR_PROJECT"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for recipe in $CHANGED_RECIPES; do
+            spec="recipes/${recipe}/${recipe}.spec"
+            version="$(sed -n 's/^Version:[[:space:]]*//p' "$spec")"
+            git add "$spec"
+            git commit -m "chore(${recipe}): package ${recipe} ${version}"
+            git push
+            sha="$(git rev-parse HEAD)"
+
+            copr-cli buildscm \
+              --clone-url "https://github.com/${REPOSITORY}.git" \
+              --commit "$sha" \
+              --subdir "recipes/${recipe}" \
+              --spec "${recipe}.spec" \
+              --background \
+              "${args[@]}" \
+              "$COPR_PROJECT"
+          done
