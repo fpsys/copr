@@ -1,11 +1,11 @@
 Name:           kiri
-Version:        1.1
+Version:        1.0
 Release:        1%{?dist}
 Summary:        Scrollable tiling window management for KDE Plasma
 
 License:        GPL-3.0-or-later
 URL:            https://github.com/SeniorMatt/kiri
-Source0:        https://github.com/SeniorMatt/kiri/releases/download/v%{version}/kiri_1_1.tar.gz
+Source0:        https://github.com/SeniorMatt/kiri/releases/download/v%{version}/kiri_1_0.tar.gz
 # SHA-256 published by the GitHub Release API for kiri_1_1.tar.gz.
 %global _vpath_srcdir effect-cpp
 
