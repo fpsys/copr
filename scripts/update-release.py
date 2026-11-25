@@ -82,8 +82,8 @@ def main() -> int:
         if missing:
             raise RuntimeError(f"Release archive is missing required Kiri files: {sorted(missing)!r}")
 
-    content = replace_once(r"^Version:\s*\S+\s*$", f"Version:        {version}", content, "Version")
-    content = replace_once(r"^Source0:\s*\S+\s*$", f"Source0:        {archive_url}", content, "Source0")
+    content = replace_once(r"^Version:\s*\S+[ \t]*$", f"Version:        {version}", content, "Version")
+    content = replace_once(r"^Source0:\s*\S+[ \t]*$", f"Source0:        {archive_url}", content, "Source0")
     content = replace_once(
         r"^echo '[0-9a-f]{64}  %\{SOURCE0\}' \| sha256sum --check --status$",
         f"echo '{digest}  %{{SOURCE0}}' | sha256sum --check --status",
@@ -91,11 +91,9 @@ def main() -> int:
         "Source0 checksum",
     )
     content = replace_once(
-        r"^%autosetup -n \S+\s*$", f"%autosetup -n {root}", content, "autosetup directory"
+        r"^%autosetup -n \S+[ \t]*$", f"%autosetup -n {root}", content, "autosetup directory"
     )
 
-    changelog_header = f"* {release.get('published_at', '')[:10]} Kiri COPR Maintainers <noreply@example.com> - {version}-1\n- Package Kiri v{version} release for Fedora KDE Plasma.\n\n"
-    content = replace_once(r"^%changelog\s*$", "%changelog\n" + changelog_header.rstrip("\n"), content, "changelog")
     SPEC.write_text(content, encoding="utf-8")
     print(f"Updated Kiri spec: {current_version} -> {version}")
     print(f"Release asset: {asset['name']}")
