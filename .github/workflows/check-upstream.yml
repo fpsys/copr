@@ -1,0 +1,91 @@
+name: Check Kiri upstream release
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kiri-upstream-release
+  cancel-in-progress: false
+
+jobs:
+  update-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out packaging repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check upstream release and update RPM spec
+        id: update
+        run: |
+          python3 scripts/update-release.py
+          if ! git diff --quiet -- kiri.spec; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit updated release metadata
+        if: steps.update.outputs.changed == 'true'
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kiri.spec
+          git commit -m "chore: package Kiri $(sed -n 's/^Version:[[:space:]]*//p' kiri.spec)"
+          git push
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Configure COPR credentials
+        if: steps.update.outputs.changed == 'true'
+        env:
+          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
+        run: |
+          if [ -z "$COPR_CONFIG" ]; then
+            echo "Missing COPR_CONFIG repository secret" >&2
+            exit 1
+          fi
+          install -d -m 700 "$HOME/.config"
+          printf '%s\n' "$COPR_CONFIG" > "$HOME/.config/copr"
+          chmod 600 "$HOME/.config/copr"
+
+      - name: Install COPR CLI
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/copr-venv"
+          "$RUNNER_TEMP/copr-venv/bin/pip" install --disable-pip-version-check copr-cli
+          echo "$RUNNER_TEMP/copr-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Submit updated source to COPR
+        if: steps.update.outputs.changed == 'true'
+        env:
+          COPR_PROJECT: ${{ vars.COPR_PROJECT }}
+          COPR_CHROOTS: ${{ vars.COPR_CHROOTS }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          if [ -z "$COPR_PROJECT" ]; then
+            echo "Missing COPR_PROJECT repository variable (for example: username/kiri)" >&2
+            exit 1
+          fi
+          if [ -z "$COPR_CHROOTS" ]; then
+            COPR_CHROOTS="fedora-44-x86_64"
+          fi
+          read -r -a chroots <<< "$COPR_CHROOTS"
+          args=()
+          for chroot in "${chroots[@]}"; do
+            args+=(--chroot "$chroot")
+          done
+          copr-cli buildscm \
+            --clone-url "https://github.com/${REPOSITORY}.git" \
+            --commit "$COMMIT_SHA" \
+            --spec kiri.spec \
+            --background \
+            "${args[@]}" \
+            "$COPR_PROJECT"
