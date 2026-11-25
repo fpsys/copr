@@ -1,11 +1,11 @@
 Name:           kiri
-Version:        1.1
+Version:        1.0
 Release:        %autorelease
 Summary:        Scrollable tiling window management for KDE Plasma
 
 License:        GPL-3.0-or-later
 URL:            https://github.com/SeniorMatt/kiri
-Source0:        https://github.com/SeniorMatt/kiri/releases/download/v1.1/kiri_1_1.tar.gz
+Source0:        https://github.com/SeniorMatt/kiri/releases/download/v%{version}/kiri_1_0.tar.gz
 # SHA-256 published by the GitHub Release API for kiri_1_1.tar.gz.
 %global _vpath_srcdir effect-cpp
 
@@ -40,7 +40,8 @@ and the regular Plasma window-management mode.
 
 %prep
 echo 'cf4a5b1baef29971ba38e03f1d06f29802d45853fd646db158f8f6c26597fbf7  %{SOURCE0}' | sha256sum --check --status
-%autosetup -n kiri_1_1
+%autosetup -n kiri_1_0
+
 %build
 %cmake \
     -DCMAKE_BUILD_TYPE=Release \
@@ -101,4 +102,5 @@ test -s %{buildroot}%{_libdir}/qt6/plugins/kwin/effects/configs/kcm_kiri.so
 %{_libdir}/qt6/plugins/kwin/effects/configs/kcm_kiri.so
 %{_licensedir}/%{name}/LICENSE
 
+%changelog
 %autochangelog
