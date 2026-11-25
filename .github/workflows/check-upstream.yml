@@ -66,7 +66,6 @@ jobs:
         if: steps.update.outputs.changed == 'true'
         env:
           COPR_PROJECT: ${{ vars.COPR_PROJECT }}
-          COPR_CHROOTS: ${{ vars.COPR_CHROOTS }}
           REPOSITORY: ${{ github.repository }}
           COMMIT_SHA: ${{ steps.commit.outputs.sha }}
         run: |
@@ -74,14 +73,30 @@ jobs:
             echo "Missing COPR_PROJECT repository variable (for example: username/kiri)" >&2
             exit 1
           fi
-          if [ -z "$COPR_CHROOTS" ]; then
-            COPR_CHROOTS="fedora-44-x86_64"
+          owner="${COPR_PROJECT%%/*}"
+          project="${COPR_PROJECT#*/}"
+          if [ "$owner" = "$project" ] || [ -z "$owner" ] || [ -z "$project" ]; then
+            echo "COPR_PROJECT must use owner/project format" >&2
+            exit 1
           fi
-          read -r -a chroots <<< "$COPR_CHROOTS"
+
+          # Read the project's enabled chroots directly from COPR. This keeps
+          # the workflow aligned with project settings without a second list
+          # in GitHub Actions variables.
+          project_json="$(curl --fail --silent --show-error \
+            "https://copr.fedorainfracloud.org/api_3/project?ownername=${owner}&projectname=${project}")"
+          mapfile -t chroots < <(jq -r '.output.project.chroots[]? // empty' <<< "$project_json")
+          if [ "${#chroots[@]}" -eq 0 ]; then
+            echo "COPR returned no enabled chroots for ${COPR_PROJECT}; refusing to submit a build" >&2
+            jq . <<< "$project_json" >&2
+            exit 1
+          fi
+
           args=()
           for chroot in "${chroots[@]}"; do
             args+=(--chroot "$chroot")
           done
+          printf 'Building for project chroots: %s\n' "${chroots[*]}"
           copr-cli buildscm \
             --clone-url "https://github.com/${REPOSITORY}.git" \
             --commit "$COMMIT_SHA" \
